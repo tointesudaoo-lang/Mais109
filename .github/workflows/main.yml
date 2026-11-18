@@ -1,0 +1,112 @@
+
+name: Toin Cloud PC - AnyDesk V3
+
+on:
+  workflow_dispatch:
+
+jobs:
+  cloud:
+    name: Toin Cloud PC Starting
+    runs-on: windows-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Install AnyDesk
+        shell: pwsh
+        env:
+          PASS: ${{ secrets.ANYDESK_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:PASS)) {
+            throw "Segredo ANYDESK_PASSWORD não encontrado neste repositório."
+          }
+
+          $url = "https://download.anydesk.com/AnyDesk.exe"
+          $file = "$env:TEMP\AnyDesk.exe"
+          $dir = "C:\Program Files (x86)\AnyDesk"
+
+          Write-Host "Baixando AnyDesk oficial..."
+          Invoke-WebRequest $url -OutFile $file -ErrorAction Stop
+
+          Write-Host "Instalando AnyDesk..."
+          & $file --install $dir --start-with-win --silent
+
+          Start-Sleep -Seconds 15
+
+          $exe = "$dir\AnyDesk.exe"
+
+          if (!(Test-Path $exe)) {
+            throw "Instalação falhou: AnyDesk.exe não encontrado."
+          }
+
+          Write-Host "Iniciando serviço..."
+          & $exe --start
+
+          Start-Sleep -Seconds 15
+
+          Write-Host "Configurando acesso remoto..."
+          $env:PASS | & $exe --set-password
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "Falha ao configurar senha do AnyDesk."
+          }
+
+          Write-Host "Senha configurada."
+
+          $id = ""
+
+          for ($i = 1; $i -le 12; $i++) {
+            $id = (& $exe --get-id 2>&1 | Out-String).Trim()
+
+            if ($id -match '^\d+$') {
+              break
+            }
+
+            Start-Sleep -Seconds 10
+          }
+
+          if ($id -notmatch '^\d+$') {
+            throw "Não foi possível obter o ID do AnyDesk."
+          }
+
+          Write-Host "================================"
+          Write-Host "       TOIN CLOUD PC"
+          Write-Host "================================"
+          Write-Host "ANYDESK ID: $id"
+          Write-Host "SENHA: Configurada"
+          Write-Host "================================"
+
+          $status = (& $exe --get-status 2>&1 | Out-String).Trim()
+          Write-Host "STATUS INICIAL: $status"
+
+          if ($status -notmatch "online") {
+            Write-Host "Aviso: AnyDesk ainda não confirmou conexão online."
+          }
+
+      - name: Monitor AnyDesk
+        shell: pwsh
+        run: |
+          $exe = "C:\Program Files (x86)\AnyDesk\AnyDesk.exe"
+          $end = (Get-Date).AddMinutes(330)
+
+          while ((Get-Date) -lt $end) {
+
+            $status = (& $exe --get-status 2>&1 | Out-String).Trim()
+
+            Write-Host "AnyDesk: $status"
+
+            if ($status -notmatch "online") {
+              Write-Host "Tentando reiniciar serviço..."
+              & $exe --restart-service
+              Start-Sleep -Seconds 20
+
+              $status = (& $exe --get-status 2>&1 | Out-String).Trim()
+              Write-Host "Novo status: $status"
+            }
+
+            Start-Sleep -Seconds 60
+          }
+
+      - name: Finish
+        if: always()
+        run: |
+          Write-Host "Sessão Toin Cloud PC encerrada."
